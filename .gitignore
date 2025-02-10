@@ -1,0 +1,21 @@
+# Ignore the vector database
+vector_db/
+data/quiver_export_embeddingObjects20241224235214 (1).csv
+
+# Ignore virtual environments
+.venv/
+venv/
+
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+data/*.csv
+vector_db/
+scripts/__pycache__/
+*.sqlite3
+__pycache__/
+*.log
+.env
+.env
