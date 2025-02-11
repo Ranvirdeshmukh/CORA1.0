@@ -1,11 +1,16 @@
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
-from langchain.vectorstores import Chroma
-from langchain.chains import RetrievalQA
-from langchain.docstore.document import Document
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-import re 
+from langchain.chains import RetrievalQA
+from langchain_core.documents import Document
+from langchain.prompts import PromptTemplate
+from dotenv import load_dotenv
 import os
+import re
+
+
+load_dotenv()  # Load .env variables
+openai_key = os.getenv("OPENAI_API_KEY")
 
 
 VECTOR_DB_DIR = "./vector_db"
@@ -40,22 +45,24 @@ def parse_filters_from_query(query: str) -> dict:
 
 # Load the vector database
 def load_vector_db():
-    embedding_model = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
-
-    return Chroma(persist_directory=VECTOR_DB_DIR, embedding_function=embedding_model)
+    embedding_model = OpenAIEmbeddings(openai_api_key=openai_key)
+    
+    return Chroma(
+        persist_directory=VECTOR_DB_DIR, 
+        embedding_function=embedding_model
+    )
 
 
 def initialize_chatbot():
-    # 1) Load the Vector DB
     vector_db = load_vector_db()
-    # 2) Initialize the Chat Model
+    
     chat_model = ChatOpenAI(
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
-    model="gpt-3.5-turbo"
+        openai_api_key=openai_key,
+        model="gpt-3.5-turbo"
     )
 
-    # 3) Return both so we can build a RetrievalQA on the fly
     return vector_db, chat_model
+
 
 
 if __name__ == "__main__":
@@ -115,7 +122,7 @@ Answer:
         )
 
         # 4) Run the chain
-        result = qa_chain({"query": query})
+        result = qa_chain.invoke({"query": query})
         answer = result["result"]
         source_docs = result["source_documents"]
 
