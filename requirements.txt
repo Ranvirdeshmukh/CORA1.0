@@ -5,3 +5,7 @@ langchain
 chromadb
 tqdm
 python-dotenv
+fastapi
+uvicorn
+langchain-openai
+langchain-community

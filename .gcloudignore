@@ -1,0 +1,7 @@
+.git
+.gitignore
+.env
+**pycache**
+*.pyc
+.DS_Store
+user_history.log
