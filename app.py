@@ -1,17 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from scripts.chatbot import parse_filters_from_query
+from scripts.chatbot import parse_filters_from_query, load_documents  # Ensure load_documents is available.
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import Chroma
 import time
 import os
 import asyncio
 from threading import Lock
 from langchain.vectorstores import FAISS
 from faiss_storage import save_faiss_to_gcs, load_faiss_from_gcs
-
 
 app = FastAPI()
 
@@ -22,7 +20,7 @@ class ChatbotManager:
     _lock = Lock()
     _last_used = None
     _cleanup_task = None
-    CLEANUP_THRESHOLD = 300  # 5 minutes of inactivity
+    CLEANUP_THRESHOLD = 3600  # Increased to 1 hour of inactivity
 
     def __init__(self):
         self.vector_db = None
@@ -45,7 +43,7 @@ class ChatbotManager:
                 self.vector_db = load_faiss_from_gcs()
             except Exception as e:
                 print("Error loading FAISS index:", e)
-                documents = load_documents()  # <-- Implement or import this.
+                documents = load_documents()  # <-- Ensure load_documents() is implemented or imported.
                 self.vector_db = FAISS.from_documents(documents, embedding_model)
                 save_faiss_to_gcs(self.vector_db)
             self.chat_model = ChatOpenAI(
@@ -53,24 +51,23 @@ class ChatbotManager:
             )
         self._last_used = time.time()
 
-
     def cleanup(self):
-        """Release memory but keep files on disk"""
-        if self.vector_db is not None:
-            del self.vector_db
-            self.vector_db = None
+        """
+        Release resources that are quick to reload (like chat_model) but keep the
+        FAISS vector index in memory to avoid reloading delays.
+        """
         if self.chat_model is not None:
             del self.chat_model
             self.chat_model = None
+        # Note: We intentionally keep self.vector_db intact.
 
     @classmethod
     async def start_cleanup_task(cls):
-        """Periodically check and cleanup unused resources"""
+        """Periodically check and cleanup unused resources."""
         while True:
             await asyncio.sleep(60)  # Check every minute
             instance = cls.get_instance()
-            if (instance._last_used is not None and 
-                time.time() - instance._last_used > cls.CLEANUP_THRESHOLD):
+            if instance._last_used is not None and time.time() - instance._last_used > cls.CLEANUP_THRESHOLD:
                 instance.cleanup()
 
 class QueryInput(BaseModel):
@@ -78,10 +75,8 @@ class QueryInput(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the cleanup task
-    ChatbotManager._cleanup_task = asyncio.create_task(
-        ChatbotManager.start_cleanup_task()
-    )
+    # Start the periodic cleanup task
+    ChatbotManager._cleanup_task = asyncio.create_task(ChatbotManager.start_cleanup_task())
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -93,14 +88,14 @@ async def shutdown_event():
 @app.post("/chat")
 async def chat_endpoint(input_data: QueryInput):
     try:
-        # Get or initialize chatbot
+        # Get or initialize the chatbot
         manager = ChatbotManager.get_instance()
         manager.initialize()
 
-        # Parse filters
+        # Parse filters from the query
         filters = parse_filters_from_query(input_data.query)
         
-        # Set up retriever
+        # Set up the retriever with filters (if any)
         if filters:
             retriever = manager.vector_db.as_retriever(
                 search_type="mmr",
@@ -112,7 +107,7 @@ async def chat_endpoint(input_data: QueryInput):
                 search_kwargs={"k": 3}
             )
 
-        # Define prompt template
+        # Define the prompt template
         stuff_template = """You are CORA 1.0, a helpful college course advisor.
 
 - If asked your name, reply: "I am CORA 1.0— your AI college advisor."
@@ -138,14 +133,12 @@ Answer:
             retriever=retriever,
             chain_type="stuff",
             return_source_documents=True,
-            chain_type_kwargs={
-                "prompt": stuff_prompt
-            }
+            chain_type_kwargs={"prompt": stuff_prompt}
         )
 
         result = qa_chain.invoke({"query": input_data.query})
         
-        # Format response
+        # Format the response with sources
         sources = [{
             "professor": doc.metadata.get("professor", "N/A"),
             "term": doc.metadata.get("term", "N/A"),

@@ -4,7 +4,6 @@ import zipfile
 from google.cloud import storage
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
-import os
 
 openai_key = os.getenv("OPENAI_API_KEY")
 BUCKET_NAME = "cora1faiss"
@@ -31,7 +30,14 @@ def save_faiss_to_gcs(faiss_vectorstore):
     print("FAISS index saved to GCS as zip.")
 
 def load_faiss_from_gcs():
-    # Download the zip file from GCS
+    local_dir = "/tmp/faiss_index_dir"
+    # If a local copy exists, load it directly
+    if os.path.exists(local_dir):
+        print("Loading FAISS index from local directory.")
+        embedding_model = OpenAIEmbeddings(openai_api_key=openai_key)
+        return FAISS.load_local(local_dir, embedding_model, allow_dangerous_deserialization=True)
+    
+    # Otherwise, download the zip file from GCS
     zip_path = "/tmp/faiss_index.zip"
     storage_client = storage.Client()
     bucket = storage_client.bucket(BUCKET_NAME)
@@ -39,7 +45,6 @@ def load_faiss_from_gcs():
     blob.download_to_filename(zip_path)
     
     # Extract the zip to a temporary directory
-    local_dir = "/tmp/faiss_index_dir"
     if os.path.exists(local_dir):
         shutil.rmtree(local_dir)
     os.makedirs(local_dir, exist_ok=True)
@@ -48,6 +53,6 @@ def load_faiss_from_gcs():
     
     # Load the vectorstore from the local directory.
     embedding_model = OpenAIEmbeddings(openai_api_key=openai_key)
-    vectorstore = FAISS.load_local(local_dir, embedding_model)
+    vectorstore = FAISS.load_local(local_dir, embedding_model, allow_dangerous_deserialization=True)
     print("FAISS index loaded from GCS zip.")
     return vectorstore
