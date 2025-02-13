@@ -1,12 +1,19 @@
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import Chroma
+# New import (using FAISS)
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from langchain_core.documents import Document
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 import os
+import csv
 import re
+# In chatbot.py
+from faiss_storage import save_faiss_to_gcs, load_faiss_from_gcs
+
+
 
 
 load_dotenv()  # Load .env variables
@@ -43,15 +50,41 @@ def parse_filters_from_query(query: str) -> dict:
     return filters
 
 
-# Load the vector database
 def load_vector_db():
     embedding_model = OpenAIEmbeddings(openai_api_key=openai_key)
-    
-    return Chroma(
-        persist_directory=VECTOR_DB_DIR, 
-        embedding_function=embedding_model
-    )
+    try:
+        faiss_index = load_faiss_from_gcs()  # See below for function implementation.
+    except Exception as e:
+        print("Could not load FAISS index from GCS; building a new index. Error:", e)
+        documents = load_documents()  # <-- Implement this function.
+        faiss_index = FAISS.from_documents(documents, embedding_model)
+        save_faiss_to_gcs(faiss_index)  # See below.
+    return faiss_index
 
+def load_documents():
+    """
+    Loads documents from the CSV file and returns a list of Document objects.
+    Adjust the columns used for the page content and metadata as needed.
+    """
+    documents = []
+    csv_file_path = "data/quiver_export_embeddingObjects20241224235214 (1).csv"
+    with open(csv_file_path, newline='', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            # For the main content, you could use the "Review" column (or any other column you prefer)
+            page_content = row.get("Review", "")
+            # Use selected fields from the CSV as metadata
+            metadata = {
+                "Title": row.get("Title", ""),
+                "Class": row.get("Class", ""),
+                "Class Num": row.get("Class Num", ""),
+                "Course Name": row.get("Course Name", ""),
+                "Department": row.get("Department", ""),
+                "Professor": row.get("Professor", ""),
+                "Term": row.get("Term", "")
+            }
+            documents.append(Document(page_content=page_content, metadata=metadata))
+    return documents
 
 def initialize_chatbot():
     vector_db = load_vector_db()

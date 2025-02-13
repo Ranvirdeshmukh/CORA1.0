@@ -9,6 +9,9 @@ import time
 import os
 import asyncio
 from threading import Lock
+from langchain.vectorstores import FAISS
+from faiss_storage import save_faiss_to_gcs, load_faiss_from_gcs
+
 
 app = FastAPI()
 
@@ -34,25 +37,22 @@ class ChatbotManager:
         return cls._instance
 
     def initialize(self):
-        """Initialize only if not already loaded"""
         if self.vector_db is None:
-            # Initialize embedding model
             embedding_model = OpenAIEmbeddings(
                 openai_api_key=os.getenv("OPENAI_API_KEY")
             )
-            
-            # Load vector store from disk
-            self.vector_db = Chroma(
-                persist_directory=LOCAL_DB_PATH,
-                embedding_function=embedding_model
-            )
-            
-            # Initialize chat model
+            try:
+                self.vector_db = load_faiss_from_gcs()
+            except Exception as e:
+                print("Error loading FAISS index:", e)
+                documents = load_documents()  # <-- Implement or import this.
+                self.vector_db = FAISS.from_documents(documents, embedding_model)
+                save_faiss_to_gcs(self.vector_db)
             self.chat_model = ChatOpenAI(
                 openai_api_key=os.getenv("OPENAI_API_KEY")
             )
-        
         self._last_used = time.time()
+
 
     def cleanup(self):
         """Release memory but keep files on disk"""
